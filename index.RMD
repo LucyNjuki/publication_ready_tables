@@ -1,0 +1,199 @@
+---
+title:  "R.U.M - Publication Ready Tables"
+author:
+- name: Lucy Njoki Njuki
+  affiliation: Centre for Epidemiology VS Arthritis, UoM, Manchester
+subtitle: User-defined functions to create summary tables
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: espresso
+    use_bookdown: TRUE
+vignette: >
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+categories: ["R"]
+---
+
+
+```{r style, echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+suppressPackageStartupMessages({
+  library(knitr) # A General-Purpose Package for Dynamic Report Generation in R, CRAN v1.41
+  library(rmarkdown) # Dynamic Documents for R, CRAN v2.19
+  library(bookdown) # Authoring Books and Technical Documents with R Markdown, CRAN v0.33
+  library(tidylog) # Logging for 'dplyr' and 'tidyr' Functions, CRAN v1.0.2
+  library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v1.3.2
+  library(janitor) # Simple Tools for Examining and Cleaning Dirty Data, CRAN v2.2.0
+  library(tidyr) # Tidy Messy Data, CRAN v1.2.1
+  library(palmerpenguins) # Palmer Archipelago (Antarctica) Penguin Data, CRAN v0.1.1
+  library(summarytools) # Tools to Quickly and Neatly Summarize Data, CRAN v1.0.1
+})
+
+options(width = 100)
+```
+
+
+\newpage
+
+# Introduction
+
+- Occasionally, we encounter environments like Microsoft Azure that do not support the default viewer mode. 
+- Consequently, utilising packages like `gtsummary` becomes impractical.
+- Therefore, it would be preferable to develop user-defined functions for data summarisation.
+
+```{r penguins_df, results='hide'}
+penguins = penguins
+```
+
+## Structure of the dataframe
+
+```{r skim_data_fn, warning=FALSE, message=FALSE}
+skim_data <- function(df, vars=NULL) {
+  df<-dplyr::as_tibble(df)
+  if (is.null(vars) == TRUE) vars <- names(df)
+  
+  variable_type <- sapply(vars,
+                          function(x) is(df[, x][[1]])[1])
+  missing_count <- sapply(vars,
+                          function(x) sum(!complete.cases(df[, x])))
+  unique_count <- sapply(vars,
+                         function(x) dplyr::n_distinct(df[, x]))
+  data_count <- nrow(dplyr::as_tibble(df))
+  Example <- sapply(vars,
+                    function(x) (df[1, x]))
+  
+  dplyr::tibble(variables = vars, types = variable_type,
+                example = Example,
+                missing_count = missing_count,
+                missing_percent = (missing_count / data_count) * 100,
+                unique_count = unique_count,
+                total_data = data_count - missing_count)
+}
+```
+
+- An example: Assess the structure of `penguins` data
+
+```{r warning=FALSE, message=FALSE}
+skim_data(penguins) |> knitr::kable(caption = "Structure of the penguin species dataset")
+```
+
+
+# Summary tables for numeric variables
+
+```{r explore_numeric_fn, warning=FALSE, message=FALSE}
+explore_numeric <- function(df, ...) {
+  df<-dplyr::as_tibble(df)
+  df %>%
+    summarise(across(
+      .cols = where(is.numeric), # checks if a variable si numeric
+      .fns = list(Min = min, Max = max, Median = median, Mean = mean, SD = sd), na.rm = TRUE, 
+      .names = "{col}_{fn}"
+    )) 
+}
+```
+
+- An example: Summarise penguins data.frame
+
+```{r explore_numeric_fn_example, warning=FALSE, message=FALSE, results='hide'}
+(table1 = explore_numeric(penguins))
+```
+
+```{r warning=FALSE, message=FALSE}
+table1 |> knitr::kable(caption = 'Summary statistics for numerical variables in a DF for penguin species')
+```
+
+# Summary tables for categorical variables
+
+```{r explore_factors_fn}
+explore_factors <- function(df, ...){
+  df<-dplyr::as_tibble(df)
+  
+  df%>%
+    dplyr::select(...)%>%
+    tidyr::gather(., "variable", "variable_level") %>%
+    dplyr::count(variable, variable_level) %>%
+    dplyr::group_by(variable) %>%             
+    dplyr::mutate(proportion = round(prop.table(n)*(100), digits=2))%>%
+    mutate(propotion_count = paste(n,"(",proportion,"%)")) %>%
+    dplyr::group_by(variable)%>%
+    dplyr::arrange(desc(n),.by_group = TRUE)%>%
+    rename("frequency" = "n")
+}
+```
+
+- An example: Summarise penguins data.frame
+
+```{r explore_factors_fn_example, warning=FALSE, message=FALSE, results='hide'}
+(table2 = explore_factors(penguins, species, island, sex))
+```
+
+```{r warning=FALSE, message=FALSE}
+table2 |> knitr::kable(caption = 'Summary statistics for factor variables in a DF for penguin species', align = "c")
+```
+
+# Combine the two summary tables
+
+- The utilisation of `knitr::kable()` is significant when it comes to conveniently visualizing datasets like these two tables in a platform like Microsoft Azure.
+
+```{r warning=FALSE, message=FALSE}
+knitr::kable(
+  list(table2, table1),
+  caption = 'Summary statistics for penguins DF',
+  booktabs = TRUE, valign = 't'
+)
+```
+
+\newpage
+
+# Other functions
+
+- Sometimes, it becomes necessary for us to determine the mode, like finding the most common International Statistical Classification of Diseases, 10th Revision (ICD-10) codes associated with a patient. 
+  - To accomplish this, we need to calculate the mode of the variable.
+- Regrettably, the default mode function is not available in R. - Therefore, creating our own custom function to calculate the mode becomes a solution.
+
+```{r get_mode, warning=FALSE, message=FALSE}
+getmode <- function(v) {
+  uniqv <- unique({{v}})
+  tab <- tabulate(match(v, uniqv))
+  uniqv[tab == max(tab)]
+}
+
+```
+
+- An example: What is the common `Petal.Length` and `Sepal.Length` for the different species?
+
+```{r iris_df, results='hide', warning=FALSE, message=FALSE}
+iris = iris
+```
+
+```{r warning=FALSE, message=FALSE}
+(mode_example = iris %>% 
+  group_by(Species) %>% 
+  summarise(sepal_length_mode = getmode(Sepal.Length), petal_length_mode = getmode(Petal.Length)) %>% 
+  kable(caption = "Example of mode", align = "c"))
+```
+
+# R package: `summarytools`
+
+- The function `summarytools::dfSummary` proves to be valuable in performing basic descriptive statistics for both numeric variables and categorical variables.
+- Additionally, it attempts to generate visual representations of the variable distributions, but <p style="color:red">these plots lack utility.</p>
+- Furthermore, the function also identifies duplicate values and missing values within the dataset.
+
+> No need for Viewer mode! `r emojifont::emoji("smiley")` `r emojifont::emoji("raised_hands")`
+
+```{r df_summary_tables, warning=FALSE, message=FALSE}
+# create a summary table using dfSummary function
+(table_stat = dfSummary(penguins))
+```
+
+
+# Acknowledgement
+
+1. Dr. Belay Birlie Yimer, Centre for Epidemiology VS Arthritis, UoM, major contributor in writing the functions `skim_data`, `explore_numeric` and `explore_factors`. 
+2.Lana Bojanic, Centre for Mental Health and Safety, UoM, Manchester
+
+# More resources
+
+1. [Deep Exploratory Data Analysis (EDA) in R](https://yuzar-blog.netlify.app/posts/2021-01-09-exploratory-data-analysis-and-beyond-in-r-in-progress/#summarytools)
+2. [A sufficient Introduction to R](https://dereksonderegger.github.io/570L/12-user-defined-functions.html)
